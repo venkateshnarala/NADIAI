@@ -36,7 +36,9 @@ import nadi_data_collec as dc
 
 from pathlib import Path
 
-LOGO_PATH = Path(r"C:\NADIAI\NADI AI LOGO.jpg")
+BASE_DIR = Path(__file__).resolve().parent
+
+LOGO_PATH = BASE_DIR / "NADI AI LOGO.jpg"
 
 # ---------------------------------------------------------------------------
 # THEME
