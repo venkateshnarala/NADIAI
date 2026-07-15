@@ -25,11 +25,14 @@ import os
 #   DATA_DIR = r"C:\Documents\NADIAI\DATA"
 from pathlib import Path
 
-NAME_CSV = Path(r"C:\NADIAI\DATA\camels_ind_name.csv")
-LAND_CSV = Path(r"C:\NADIAI\DATA\camels_ind_land.csv")
-TOPO_CSV = Path(r"C:\NADIAI\DATA\camels_ind_topo.csv")
-FLOW_CSV = Path(r"C:\NADIAI\DATA\streamflow_observed.csv")
-WATERLEVEL_CSV = Path(r"C:\NADIAI\DATA\waterleveldata.csv")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "DATA"
+
+NAME_CSV = DATA_DIR / "camels_ind_name.csv"
+LAND_CSV = DATA_DIR / "camels_ind_land.csv"
+TOPO_CSV = DATA_DIR / "camels_ind_topo.csv"
+FLOW_CSV = DATA_DIR / "streamflow_observed.csv"
+WATERLEVEL_CSV = DATA_DIR / "waterleveldata.csv"
 
 MIN_YEAR_AVAILABILITY_PCT = 50.0   # a year is "usable" if >=50% of days have data
 MIN_YEARS_REQUIRED = 10            # minimum usable years needed to run full analysis
