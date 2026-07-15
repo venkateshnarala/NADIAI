@@ -28,6 +28,7 @@ import nadi_statisticaltests as st_tests
 import nadi_distfit as dfit
 import nadi_plot as pl
 import nadi_report as rp
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # PAGE CONFIG + THEME
@@ -44,11 +45,17 @@ LIGHT_BLUE = "#3D85C6"
 ACCENT_BLUE = "#9FC5E8"
 DEEP_BLUE = "#073763"
 
-LOGO_PATH = r"C:\Documents\NADIAI\NADI AI LOGO.jpg"
 
-# Same data files used by the reference map script
-NAME_FILE = r"C:\Documents\NADIAI\DATA\camels_ind_name.csv"
-TOPO_FILE = r"C:\Documents\NADIAI\DATA\camels_ind_topo.csv"
+# Project root directory
+BASE_DIR = Path(__file__).resolve().parent
+
+# Logo
+LOGO_PATH = BASE_DIR / "NADI AI LOGO.jpg"
+
+# Data files
+DATA_DIR = BASE_DIR / "DATA"
+NAME_FILE = DATA_DIR / "camels_ind_name.csv"
+TOPO_FILE = DATA_DIR / "camels_ind_topo.csv"
 
 st.markdown(
     f"""
