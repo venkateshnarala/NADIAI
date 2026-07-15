@@ -495,8 +495,7 @@ if st.button("\U0001F30A Run Hydrological Analysis", type="primary"):
 st.markdown(
     """
     <div class="nadi-footer">
-        \U0001F4A7 NADI AI - developed by Narala Venkatesh, M.Tech Water Resources Engineering, NIT Warangal.<br>
-        Data source: CAMELS-IND (Mangukiya et al., 2025, Earth Syst. Sci. Data).
+        NADI AI - Developed by Narala Venkatesh, M.Tech Water Resources Engineering, NIT Warangal.
     </div>
     """,
     unsafe_allow_html=True,
