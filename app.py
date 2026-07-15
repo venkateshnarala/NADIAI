@@ -28,7 +28,7 @@ import nadi_statisticaltests as st_tests
 import nadi_distfit as dfit
 import nadi_plot as pl
 import nadi_report as rp
-from pathlib import Path
+
 
 # ---------------------------------------------------------------------------
 # PAGE CONFIG + THEME
@@ -45,7 +45,7 @@ LIGHT_BLUE = "#3D85C6"
 ACCENT_BLUE = "#9FC5E8"
 DEEP_BLUE = "#073763"
 
-
+from pathlib import Path
 # Project root directory
 BASE_DIR = Path(__file__).resolve().parent
 
