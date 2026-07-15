@@ -23,13 +23,18 @@ import os
 # By default this points to your DATA folder at C:\Documents\NADIAI\DATA.
 # If you move the project or the data, update DATA_DIR below, e.g.:
 #   DATA_DIR = r"C:\Documents\NADIAI\DATA"
-DATA_DIR = r"C:\Documents\NADIAI\DATA"
 
-NAME_CSV = os.path.join(DATA_DIR, "camels_ind_name.csv")
-LAND_CSV = os.path.join(DATA_DIR, "camels_ind_land.csv")
-TOPO_CSV = os.path.join(DATA_DIR, "camels_ind_topo.csv")
-FLOW_CSV = os.path.join(DATA_DIR, "streamflow_observed.csv")
-WATERLEVEL_CSV = os.path.join(DATA_DIR, "waterleveldata.csv")
+from pathlib import Path
+
+# Project root directory
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "DATA"
+
+NAME_CSV = DATA_DIR / "camels_ind_name.csv"
+LAND_CSV = DATA_DIR / "camels_ind_land.csv"
+TOPO_CSV = DATA_DIR / "camels_ind_topo.csv"
+FLOW_CSV = DATA_DIR / "streamflow_observed.csv"
+WATERLEVEL_CSV = DATA_DIR / "waterleveldata.csv"
 
 MIN_YEAR_AVAILABILITY_PCT = 50.0   # a year is "usable" if >=50% of days have data
 MIN_YEARS_REQUIRED = 10            # minimum usable years needed to run full analysis
