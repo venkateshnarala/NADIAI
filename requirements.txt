@@ -1,0 +1,14 @@
+streamlit>=1.38
+streamlit-folium>=0.25.0
+folium>=0.20.0
+
+pandas>=2.0
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+
+reportlab>=4.0
+Pillow>=10.0
+
+pymannkendall>=1.4.3
+ruptures>=1.1.9
