@@ -47,11 +47,9 @@ DEEP_BLUE = "#073763"
 
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-
-LOGO_PATH = BASE_DIR / "NADI AI LOGO.jpg"
-NAME_FILE = BASE_DIR / "DATA" / "camels_ind_name.csv"
-TOPO_FILE = BASE_DIR / "DATA" / "camels_ind_topo.csv"
+LOGO_PATH = Path(r"C:\NADIAI\NADI AI LOGO.jpg")
+NAME_FILE = Path(r"C:\NADIAI\DATA\camels_ind_name.csv")
+TOPO_FILE = Path(r"C:\NADIAI\DATA\camels_ind_topo.csv")
 
 # ---------------------------------------------------------------------------
 # CHATBOT CONFIG (OpenRouter)
