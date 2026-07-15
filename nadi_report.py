@@ -33,7 +33,11 @@ import nadi_data_collec as dc
 
 # Path to the NADI AI logo used on the title page and thank-you page.
 # If the file is missing, the report still builds fine (logo is skipped).
-LOGO_PATH = r"C:\Documents\NADIAI\NADI AI LOGO.jpg"
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "NADI AI LOGO.jpg"
 
 # ---------------------------------------------------------------------------
 # THEME
