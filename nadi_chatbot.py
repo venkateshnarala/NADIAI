@@ -13,20 +13,32 @@ dict. This module performs NO hydrological calculations of its own -- it
 only formats that dict as grounding context for an LLM call and relays the
 model's natural-language answer back to the user.
 
-Model: OpenRouter, google/gemma-3-27b-it:free (configurable below).
+Model: OpenRouter free-tier models, tried in order with automatic fallback
+(see FALLBACK_MODELS below) since single-provider free models occasionally
+return upstream errors.
 """
 
 import json
-import time
+import html
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "openai/gpt-oss-20b:free"
+
+# Tried in this order. If a model's provider errors out (common on free
+# tiers with only one backend provider), we automatically retry with the
+# next model in the list before showing the user an error.
+FALLBACK_MODELS = [
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "poolside/laguna-xs-2.1:free",
+]
+
 REQUEST_TIMEOUT_SECONDS = 45
 MAX_HISTORY_TURNS = 8  # how many past user/assistant turns to resend for context
 
@@ -98,7 +110,7 @@ class EmptyResponseError(ChatbotError):
 
 
 # ---------------------------------------------------------------------------
-# CORE OPENROUTER CALL
+# MESSAGE BUILDING
 # ---------------------------------------------------------------------------
 
 def _build_messages(analysis_summary, chat_history, user_question):
@@ -127,47 +139,13 @@ def _build_messages(analysis_summary, chat_history, user_question):
     return messages
 
 
-def ask_chatbot(analysis_summary, chat_history, user_question, api_key,
-                 model=OPENROUTER_MODEL, stream=True):
-    """
-    Send a question to OpenRouter, grounded strictly in analysis_summary.
+# ---------------------------------------------------------------------------
+# LOW-LEVEL REQUEST HELPERS (single model, single attempt)
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    analysis_summary : dict
-        Output of nadi_report.build_analysis_summary(station_data). Must not
-        be None/empty -- raises MissingAnalysisError otherwise.
-    chat_history : list[dict]
-        Prior turns as [{"role": "user"/"assistant", "content": "..."}].
-    user_question : str
-    api_key : str
-        OpenRouter API key.
-    model : str
-    stream : bool
-        If True, returns a generator yielding text chunks. If False, returns
-        the full answer string in one go.
-
-    Raises
-    ------
-    MissingAnalysisError, InvalidAPIKeyError, APITimeoutError,
-    ConnectionFailedError, EmptyResponseError
-    """
-    if not analysis_summary:
-        raise MissingAnalysisError(
-            "No analysis results are available yet. Please run the "
-            "hydrological analysis for this station first, then ask "
-            "your question."
-        )
-    if not api_key:
-        raise InvalidAPIKeyError(
-            "No OpenRouter API key is configured. Please add a valid API "
-            "key to use the chatbot."
-        )
-    if not user_question or not user_question.strip():
-        raise EmptyResponseError("Please type a question to ask the assistant.")
-
-    messages = _build_messages(analysis_summary, chat_history, user_question)
-
+def _post_request(messages, api_key, model, stream):
+    """POST to OpenRouter for a single model. Converts network-level failures
+    into our ChatbotError subclasses. Returns the raw requests.Response."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -188,8 +166,7 @@ def ask_chatbot(analysis_summary, chat_history, user_question, api_key,
         )
     except requests.exceptions.Timeout:
         raise APITimeoutError(
-            "The request to the AI service timed out. Please try again "
-            "in a moment."
+            "The request to the AI service timed out. Please try again in a moment."
         )
     except requests.exceptions.ConnectionError:
         raise ConnectionFailedError(
@@ -199,19 +176,23 @@ def ask_chatbot(analysis_summary, chat_history, user_question, api_key,
     except requests.exceptions.RequestException as e:
         raise ConnectionFailedError(f"Connection to the AI service failed: {e}")
 
+    return response
+
+
+def _check_status(response, model):
+    """Raise the appropriate ChatbotError subclass based on HTTP status code."""
     if response.status_code == 401:
         raise InvalidAPIKeyError(
             "The OpenRouter API key was rejected (invalid or expired). "
             "Please check the configured API key."
         )
-    if response.status_code == 408 or response.status_code == 504:
+    if response.status_code in (408, 504):
         raise APITimeoutError(
-            "The AI service took too long to respond. Please try again."
+            f"The AI service ({model}) took too long to respond."
         )
     if response.status_code == 429:
         raise ConnectionFailedError(
-            "The AI service is rate-limiting requests right now (free-tier "
-            "limit reached). Please wait a moment and try again."
+            f"The AI service ({model}) is rate-limiting requests right now."
         )
     if response.status_code >= 400:
         try:
@@ -219,31 +200,25 @@ def ask_chatbot(analysis_summary, chat_history, user_question, api_key,
             err_msg = err_body.get("error", {}).get("message", response.text[:300])
         except Exception:
             err_msg = response.text[:300]
-        raise ConnectionFailedError(f"The AI service returned an error: {err_msg}")
-
-    if stream:
-        return _stream_response(response)
-    else:
-        return _parse_full_response(response)
+        raise ConnectionFailedError(f"The AI service ({model}) returned an error: {err_msg}")
 
 
-def _parse_full_response(response):
+def _parse_full_response(response, model):
     try:
         data = response.json()
         content = data["choices"][0]["message"]["content"]
     except Exception:
         raise EmptyResponseError(
-            "The AI service returned an unreadable response. Please try again."
+            f"The AI service ({model}) returned an unreadable response."
         )
     if not content or not content.strip():
         raise EmptyResponseError(
-            "The AI service returned an empty response. Please try rephrasing "
-            "your question or try again."
+            f"The AI service ({model}) returned an empty response."
         )
     return content
 
 
-def _stream_response(response):
+def _stream_response(response, model):
     """
     Generator that yields text chunks from an OpenRouter SSE stream.
     Raises EmptyResponseError at the end if nothing was ever yielded.
@@ -273,17 +248,124 @@ def _stream_response(response):
                 yield piece
     except requests.exceptions.ChunkedEncodingError:
         raise ConnectionFailedError(
-            "The connection to the AI service was interrupted mid-response. "
-            "Please try again."
+            f"The connection to the AI service ({model}) was interrupted mid-response."
         )
     except requests.exceptions.RequestException as e:
-        raise ConnectionFailedError(f"Connection to the AI service failed: {e}")
+        raise ConnectionFailedError(f"Connection to the AI service ({model}) failed: {e}")
 
     if not got_any_content:
         raise EmptyResponseError(
-            "The AI service returned an empty response. Please try rephrasing "
-            "your question or try again."
+            f"The AI service ({model}) returned an empty response."
         )
+
+
+# ---------------------------------------------------------------------------
+# FALLBACK ORCHESTRATION (tries each model in FALLBACK_MODELS in turn)
+# ---------------------------------------------------------------------------
+
+def _fetch_with_fallback(messages, api_key, models):
+    """Non-streaming fallback loop. Returns the full answer string from the
+    first model that succeeds; raises the last error if all fail."""
+    last_error = None
+    for model in models:
+        try:
+            response = _post_request(messages, api_key, model, stream=False)
+            _check_status(response, model)
+            return _parse_full_response(response, model)
+        except InvalidAPIKeyError:
+            # A bad API key will fail for every model -- no point retrying.
+            raise
+        except (APITimeoutError, ConnectionFailedError, EmptyResponseError) as e:
+            last_error = e
+            continue
+    raise last_error or ConnectionFailedError("All AI models failed to respond.")
+
+
+def _stream_with_fallback(messages, api_key, models):
+    """
+    Streaming fallback loop. Eagerly pulls the first chunk from each model
+    before committing to it, so a failing model doesn't get shown to the
+    user -- it just silently moves to the next model in the list.
+    Returns a generator of text chunks from whichever model worked first.
+    """
+    last_error = None
+    for model in models:
+        try:
+            response = _post_request(messages, api_key, model, stream=True)
+            _check_status(response, model)
+            gen = _stream_response(response, model)
+            first_chunk = next(gen)  # forces the first real chunk (or raises)
+
+            def _combined(first_chunk=first_chunk, gen=gen):
+                yield first_chunk
+                yield from gen
+
+            return _combined()
+        except InvalidAPIKeyError:
+            # A bad API key will fail for every model -- no point retrying.
+            raise
+        except StopIteration:
+            last_error = EmptyResponseError(f"The AI service ({model}) returned an empty response.")
+            continue
+        except (APITimeoutError, ConnectionFailedError, EmptyResponseError) as e:
+            last_error = e
+            continue
+    raise last_error or ConnectionFailedError("All AI models failed to respond.")
+
+
+# ---------------------------------------------------------------------------
+# PUBLIC ENTRY POINT
+# ---------------------------------------------------------------------------
+
+def ask_chatbot(analysis_summary, chat_history, user_question, api_key,
+                 models=None, stream=True):
+    """
+    Send a question to OpenRouter, grounded strictly in analysis_summary.
+    Tries each model in `models` (default: FALLBACK_MODELS) in order until
+    one succeeds.
+
+    Parameters
+    ----------
+    analysis_summary : dict
+        Output of nadi_report.build_analysis_summary(station_data). Must not
+        be None/empty -- raises MissingAnalysisError otherwise.
+    chat_history : list[dict]
+        Prior turns as [{"role": "user"/"assistant", "content": "..."}].
+    user_question : str
+    api_key : str
+        OpenRouter API key.
+    models : list[str] or None
+        Model IDs to try in order. Defaults to FALLBACK_MODELS.
+    stream : bool
+        If True, returns a generator yielding text chunks. If False, returns
+        the full answer string in one go.
+
+    Raises
+    ------
+    MissingAnalysisError, InvalidAPIKeyError, APITimeoutError,
+    ConnectionFailedError, EmptyResponseError
+    """
+    if not analysis_summary:
+        raise MissingAnalysisError(
+            "No analysis results are available yet. Please run the "
+            "hydrological analysis for this station first, then ask "
+            "your question."
+        )
+    if not api_key:
+        raise InvalidAPIKeyError(
+            "No OpenRouter API key is configured. Please add a valid API "
+            "key to use the chatbot."
+        )
+    if not user_question or not user_question.strip():
+        raise EmptyResponseError("Please type a question to ask the assistant.")
+
+    models = models or FALLBACK_MODELS
+    messages = _build_messages(analysis_summary, chat_history, user_question)
+
+    if stream:
+        return _stream_with_fallback(messages, api_key, models)
+    else:
+        return _fetch_with_fallback(messages, api_key, models)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +389,59 @@ SUGGESTED_QUESTIONS = [
     "Summarize the findings in one paragraph.",
 ]
 
+# CSS fix: force chat bubbles onto a light card regardless of Streamlit's
+# theme, so text never blends into a dark/mismatched background.
+_CHAT_CSS = """
+<style>
+[data-testid="stChatMessage"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #9FC5E8;
+    border-radius: 12px;
+    padding: 10px 16px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] div {
+    color: #073763 !important;
+}
+[data-testid="stChatMessageAvatarUser"] {
+    background-color: #0B5394 !important;
+}
+[data-testid="stChatMessageAvatarAssistant"] {
+    background-color: #3D85C6 !important;
+}
+[data-testid="stChatInput"] textarea {
+    background-color: #FFFFFF !important;
+    color: #073763 !important;
+}
+</style>
+"""
+
+
+
+def copy_button(text):
+    escaped = html.escape(text)
+
+    components.html(
+    f"""
+    <div style="display:flex;justify-content:flex-end;margin-top:-6px;margin-bottom:8px;">
+        <button
+            onclick="navigator.clipboard.writeText(`{escaped}`);this.innerHTML='✅ Copied';setTimeout(()=>this.innerHTML='📋 Copy',1200);"
+            style="
+                background:none;
+                border:none;
+                cursor:pointer;
+                font-size:18px;
+            ">
+            📋 Copy
+        </button>
+    </div>
+    """,
+    height=35,
+)
 
 def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
     """
@@ -314,6 +449,7 @@ def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
     analysis_summary. Call this after the hydrological analysis has been
     run for the selected station.
     """
+    st.markdown(_CHAT_CSS, unsafe_allow_html=True)
     st.markdown("### \U0001F4AC Ask NADI AI About This Analysis")
 
     if not analysis_summary:
@@ -321,8 +457,8 @@ def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
         return
 
     st.caption(
-    "📝 **Note:** NADI AI answers only questions related to the above analysis results."
-        )
+        "📝 **Note:** NADI AI answers only questions related to the above analysis results."
+    )
     history_key = "nadi_chat_history"
     if history_key not in st.session_state:
         st.session_state[history_key] = []
@@ -333,6 +469,8 @@ def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
         with st.chat_message(turn["role"]):
             st.markdown(turn["content"])
 
+        if turn["role"] == "assistant":
+            copy_button(turn["content"])
 
     user_question = st.chat_input("Ask about the analysis results...")
     question_to_ask = user_question
@@ -362,6 +500,7 @@ def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
                     full_answer += chunk
                     placeholder.markdown(full_answer + "\u258c")
                 placeholder.markdown(full_answer)
+                copy_button(full_answer)
 
             except MissingAnalysisError as e:
                 placeholder.error(f"\u26A0\uFE0F {e}")
@@ -390,6 +529,7 @@ def render_chatbot_ui(analysis_summary, api_key, station_label="this station"):
 
         if full_answer:
             st.session_state[history_key].append({"role": "assistant", "content": full_answer})
+   
         else:
             # Remove the user question that couldn't be answered so the
             # history doesn't get out of sync with what was actually shown.
