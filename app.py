@@ -45,6 +45,7 @@ LIGHT_BLUE = "#3D85C6"
 ACCENT_BLUE = "#9FC5E8"
 DEEP_BLUE = "#073763"
 
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "NADI AI LOGO.jpg"
 NAME_FILE = BASE_DIR / "DATA" / "camels_ind_name.csv"
 TOPO_FILE = BASE_DIR / "DATA" / "camels_ind_topo.csv"
+
 
 # ---------------------------------------------------------------------------
 # CHATBOT CONFIG (OpenRouter)
@@ -146,6 +148,38 @@ st.markdown(
         margin-top: 30px;
         text-align: center;
     }}
+    /* --- Permanent station-name labels on the map markers (visible once
+         zoomed in far enough for markers to break out of clustering) --- */
+    .nadi-station-label {{
+        background: rgba(255,255,255,0.92);
+        border: 1px solid {PRIMARY_BLUE};
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: {DEEP_BLUE};
+        white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+        margin-left: 18px;
+        margin-top: -8px;
+    }}
+    /* --- Jump-to-details link shown right after selecting a station,
+         mainly to help mobile users skip past the map quickly --- */
+    .nadi-jump-link {{
+        display: inline-block;
+        margin: 4px 0 14px 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: {PRIMARY_BLUE};
+        text-decoration: none;
+    }}
+    /* --- Shrink the map on small (mobile) screens so the Run button and
+         station details aren't pushed entirely off-screen --- */
+    @media (max-width: 768px) {{
+        iframe {{
+            max-height: 380px !important;
+        }}
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -225,7 +259,7 @@ st.markdown(
         <div class="nadi-header-text">
             <h1 style="color:white; margin:0; padding:0; font-size:2.4rem; line-height:1.2; font-weight:700;">NADI AI</h1>
             <p style="color:rgba(255,255,255,0.9); margin:4px 0 0 0; padding:0; font-size:1.1rem;">
-                Your AI Assistant for Hydrological Analysis
+                AI Assistant for Indian Gauge Stations
             </p>
         </div>
     </div>
@@ -320,9 +354,20 @@ for _, row in map_df.iterrows():
     </table>
     </div>
     """
+    # Permanent (always-on) label with the station name. Because this marker
+    # sits inside the MarkerCluster, the label is only actually visible once
+    # the map is zoomed in past disableClusteringAtZoom (=10) and the pin
+    # breaks out of its cluster bubble -- so labels appear "after zooming in"
+    # automatically, and work on tap/touch (mobile) as well as hover.
     folium.Marker(
         location=[row["cwc_lat"], row["cwc_lon"]],
-        tooltip=row["cwc_site_name"],
+        tooltip=folium.Tooltip(
+             f'<div class="nadi-station-label">{row["cwc_site_name"]}</div>',
+             permanent=True,
+             direction="right",
+             offset=(15, 0),
+            sticky=False,
+        ),
         popup=folium.Popup(popup_html, max_width=350),
         icon=folium.Icon(
             color="red" if is_selected else "blue",
@@ -334,7 +379,7 @@ for _, row in map_df.iterrows():
 map_output = st_folium(
     m,
     width=None,
-    height=600,
+    height=480,
     returned_objects=["last_object_clicked_tooltip"],
     key="station_map",
 )
@@ -356,7 +401,8 @@ if not selected_station:
     st.stop()
 
 st.markdown(
-    f'<div class="nadi-selected-banner">\U0001F4CD Selected station: {selected_station}</div>',
+    f'<div class="nadi-selected-banner">\U0001F4CD Selected station: {selected_station}</div>'
+    f'<a class="nadi-jump-link" href="#station-details">\u2B07 Jump to station details &amp; Run button</a>',
     unsafe_allow_html=True,
 )
 
@@ -380,6 +426,7 @@ except Exception as e:
 
 meta = station_data["meta"]
 
+st.markdown('<div id="station-details"></div>', unsafe_allow_html=True)
 st.markdown("---")
 st.markdown(f"## \U0001F30A {meta.get('cwc_site_name', 'N/A')}")
 
